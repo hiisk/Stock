@@ -141,7 +141,7 @@ def get_target_price(code):
         lastday_low = lastday[2]
         lastday_open = lastday[0]
         lastday_close = lastday[3]
-        target_price = today_open + (lastday_high - lastday_low) * 0.5
+        target_price = today_open + (lastday_high - lastday_low) * 0.4 + abs(lastday_open - lastday_close) * 0.1
         return target_price
 
     except Exception as ex:
@@ -169,6 +169,8 @@ def stock_trade(code):
     """인자로 받은 종목을 시장가 IOC 조건으로 매수한다."""
     try:
         global bought_list      # 함수 내에서 값 변경을 하기 위해 global로 지정
+        global sold_list      # 함수 내에서 값 변경을 하기 위해 global로 지정  
+
         # if code in bought_list: # 매수 완료 종목이면 더 이상 안 사도록 함수 종료
         #     #printlog('code:', code, 'in', bought_list)
         #     return False
@@ -212,16 +214,14 @@ def stock_trade(code):
                 return False
         
         #반 매도
-        global sold_list      # 함수 내에서 값 변경을 하기 위해 global로 지정  
- 
-        if (code not in sold_list) and stock_qty != 0 and current_price >= target_price * 1.005 :
+        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= target_price * 1.005 :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
             cpOrder.SetInputValue(3, code)   # 종목코드
             cpOrder.SetInputValue(4, round(stock_qty/2))    # 매도수량
             cpOrder.SetInputValue(7, "1")   # 조건 0:기본, 1:IOC, 2:FOK
-            cpOrder.SetInputValue(8, "03")  # 호가 12:최유리, 13:최우선 
+            cpOrder.SetInputValue(8, "12")  # 호가 12:최유리, 13:최우선 
             # 시장가 IOC 매도 주문 요청
 
             dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
@@ -233,7 +233,7 @@ def stock_trade(code):
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)
         
         #반매도후 나머지 매도
-        if (code in sold_list) and stock_qty != 0 and current_price >= target_price * 1.008 :
+        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= target_price * 1.009 :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -244,6 +244,10 @@ def stock_trade(code):
             # 시장가 IOC 매도 주문 요청
             dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '전체 매도 완료')
             
+            symbol_list.remove(code)
+            bought_list.remove(code)
+            sold_list.remove(code)
+
             ret = cpOrder.BlockRequest()
             if ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
@@ -299,48 +303,7 @@ if __name__ == '__main__':
     
             if stockKind == 10 or stockKind == 12 :
                 ETFList.append(code)
-        symbol_list = [
-                    #    'A069500', #KODEX 200
-                    #    'A305720', #KODEX 2차전지산업
-                    #    'A091180', #KODEX 자동차
-                    #    'A102970', #KODEX 증권
-                    #    'A102780', #KODEX 삼성그룹
-                    #    'A244580', #KODEX 바이오
-                    #    'A379810', #KODEX 미국나스닥100TR
-                    #    'A266360', #KODEX 미디어&엔터테인먼트
-                    #    'A368680', #KODEX Fn K-뉴딜디지털플러스
-                    #    'A117680', #KODEX 철강
-                    #    'A102960', #KODEX 기계장비
-                    #    'A300950', #KODEX 게임산업                  
-                    #    'A102110', #TIGER 200
-                    #    'A228810', #TIGER 미디어컨텐츠
-                    #    'A157490', #TIGER 소프트웨어
-                    #    'A228790', #TIGER 화장품
-                    #    'A139230', #TIGER 200 중공업
-                    #    'A139260', #TIGER 200 IT
-                    #    'A305540', #TIGER 2차전지테마
-                    #    'A307510', #TIGER 의료기기
-                    #    'A228800', #TIGER 여행레저
-                    #    'A292150', #TIGER TOP10
-                    #    'A381180', #TIGER 미국필라델피아반도체나스닥
-                    #    'A381170', #TIGER 미국테크TOP10 INDXX
-                    #    'A133690', #TIGER 미국나스닥100
-                    #    'A364990', #TIGER KRX게임K-뉴딜
-                    #    'A371160', #TIGER 차이나항셍테크
-                    #    'A371450', #TIGER 글로벌클라우드컴퓨팅INDXX
-                    #    'A275980', #TIGER 글로벌4차산업혁신기술(합성 H)
-                    #    'A364960', #TIGER KRX BBIG K-뉴딜
-                    #    'A150460', #TIGER 중국소비테마
-                    #    'A139250', #TIGER 200 에너지화학
-                    #    'A139240', #TIGER 200 철강소재
-                    #    'A364980', #TIGER KRX2차전지K-뉴딜
-                    #    'A152100', #ARIRANG 200
-                    #    'A367760', #KBSTAR Fn5G테크
-                    #    'A290130', #KBSTAR ESG사회책임투자
-                    #    'A326240', #KBSTAR IT플러스
-                    #    'A367740', #HANARO Fn5G산업
-                    #    'A322400'  #HANARO e커머스
-                       ]    
+        symbol_list = []
 
         
         objStockChart = win32com.client.Dispatch("CpSysDib.StockChart")
@@ -354,7 +317,7 @@ if __name__ == '__main__':
             objStockChart.SetInputValue(9, ord('1')) # 수정주가 사용
             objStockChart.BlockRequest()
             vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
-            if vol > 10000 :
+            if vol > 50000 :
                 print(ETFList[i])
                 symbol_list.append(ETFList[i])
             time.sleep(0.25)
@@ -393,7 +356,7 @@ if __name__ == '__main__':
                     for sym in symbol_list:
                         stock_trade(sym)
                         time.sleep(1)
-                elif current_cash < total_cash * buy_percent:                           
+                elif current_cash < total_cash * buy_percent: # 증거금이 부족할 때 매도 최적화      
                     for bou in bought_list:
                         stock_trade(bou)
                         time.sleep(1)
