@@ -213,7 +213,7 @@ def stock_trade(code):
         current_cash = int(get_current_cash()) # 증거금 100% 주문 가능 금액
 
         if ((code not in bought_list) and current_price > symbol_list_value[code] and current_price > ma5_price and current_price > ma10_price
-            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.002)) :       
+            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.003)) :       
 
             cpOrder.SetInputValue(0, "2")        # 2: 매수
             cpOrder.SetInputValue(1, acc)        # 계좌번호
