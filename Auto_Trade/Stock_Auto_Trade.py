@@ -5,6 +5,7 @@ from datetime import datetime
 from slacker import Slacker
 import time, calendar
 from urllib.request import urlopen
+import numpy as np
 
 import requests
 def post_message(token, channel, text):
@@ -141,7 +142,17 @@ def get_target_price(code):
         lastday_low = lastday[2]
         lastday_open = lastday[0]
         lastday_close = lastday[3]
-        target_price = today_open + (lastday_high - lastday_low) * 0.4 + abs(lastday_open - lastday_close) * 0.1
+        
+        target_tmp_3 = 0
+        for i in range(0.1, 1.0, 0.01):
+            lastday_range = lastday_high - lastday_low * i
+            target_tmp = lastday_open + lastday_range.shift(1)
+            target_tmp_2 = np.where(lastday_high > target_tmp, lastday_close / target_tmp,1)
+            if target_tmp_3 < target_tmp_2.cumprod()[-2]:
+                target_tmp_3 = target_tmp_2.cumprod()[-2]
+                k = i
+
+        target_price = today_open + (lastday_high - lastday_low) * k
         return target_price
 
     except Exception as ex:
@@ -177,7 +188,7 @@ def stock_trade(code):
         time_now = datetime.now()
         current_price, ask_price, bid_price = get_current_price(code) 
         
-        target_price = get_target_price(code)    # 매수 목표가
+        # target_price = get_target_price(code)    # 매수 목표가
         if code not in bought_list:
             ma5_price = get_movingaverage(code, 5)   # 5일 이동평균가
             ma10_price = get_movingaverage(code, 10) # 10일 이동평균가
@@ -191,8 +202,8 @@ def stock_trade(code):
         accFlag = cpTradeUtil.GoodsList(acc, 1) # -1:전체,1:주식,2:선물/옵션    
         current_cash = int(get_current_cash()) # 증거금 100% 주문 가능 금액
 
-        if ((code not in bought_list) and current_price > target_price and current_price > ma5_price and current_price > ma10_price
-            and current_cash > total_cash * buy_percent and (current_price < target_price * 1.002)) :       
+        if ((code not in bought_list) and current_price > symbol_list_value[code] and current_price > ma5_price and current_price > ma10_price
+            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.002)) :       
 
             cpOrder.SetInputValue(0, "2")        # 2: 매수
             cpOrder.SetInputValue(1, acc)        # 계좌번호
@@ -214,7 +225,7 @@ def stock_trade(code):
                 return False
         
         #반 매도
-        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= target_price * 1.005 :
+        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.005 :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -224,7 +235,7 @@ def stock_trade(code):
             cpOrder.SetInputValue(8, "12")  # 호가 12:최유리, 13:최우선 
             # 시장가 IOC 매도 주문 요청
 
-            dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
+            dbgout('최유리 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
             sold_list.append(code)
 
             ret = cpOrder.BlockRequest() 
@@ -233,7 +244,7 @@ def stock_trade(code):
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)
         
         #반매도후 나머지 매도
-        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= target_price * 1.009 :
+        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.009 :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -304,7 +315,7 @@ if __name__ == '__main__':
             if stockKind == 10 or stockKind == 12 :
                 ETFList.append(code)
         symbol_list = []
-
+        symbol_list_value = {}
         
         objStockChart = win32com.client.Dispatch("CpSysDib.StockChart")
         # 차트 객체 구하기
@@ -318,8 +329,9 @@ if __name__ == '__main__':
             objStockChart.BlockRequest()
             vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
             if vol > 50000 :
-                print(ETFList[i])
                 symbol_list.append(ETFList[i])
+                symbol_list_value[ETFList[i]] = get_target_price(ETFList[i])
+                print(symbol_list_value[ETFList[i]])
             time.sleep(0.25)
 
         bought_list = []     # 매수 완료된 종목 리스트
