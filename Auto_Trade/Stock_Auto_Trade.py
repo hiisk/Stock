@@ -143,16 +143,26 @@ def get_target_price(code):
         lastday_open = lastday[0]
         lastday_close = lastday[3]
         
-        target_tmp_3 = 0
-        for i in range(0.1, 1.0, 0.01):
-            lastday_range = lastday_high - lastday_low * i
-            target_tmp = lastday_open + lastday_range.shift(1)
-            target_tmp_2 = np.where(lastday_high > target_tmp, lastday_close / target_tmp,1)
-            if target_tmp_3 < target_tmp_2.cumprod()[-2]:
-                target_tmp_3 = target_tmp_2.cumprod()[-2]
-                k = i
+        k = 0
+        target_tmp_2 = 1
 
-        target_price = today_open + (lastday_high - lastday_low) * k
+        for i in np.arange(0.1, 1.0, 0.01): # 백테스팅을 통한 최적 K값 도출
+            ohlc['range'] = (ohlc['high'] - ohlc['low']) * i
+            ohlc['target'] = ohlc['open'] + ohlc['range'].shift(1)
+            target_tmp = np.where(ohlc['high'] > ohlc['target'], ohlc['close'] / ohlc['target'],1)
+            if target_tmp_2 < target_tmp.cumprod()[-2]:
+                target_tmp_2 = target_tmp.cumprod()[-2]
+                k = i
+        
+        if k == 0 or target_tmp_2 < 1.003: # 수익률이 너무 낮다면 제거
+            delete_list.append(code)
+
+        else:
+            print(code, k, target_tmp_2) 
+            if k < 0.25: #k값이 0.25보다 낮을경우 
+                k = 0.25
+        target_price = today_open + int((lastday_high - lastday_low) * k)
+
         return target_price
 
     except Exception as ex:
@@ -316,7 +326,7 @@ if __name__ == '__main__':
                 ETFList.append(code)
         symbol_list = []
         symbol_list_value = {}
-        
+        delete_list = []
         objStockChart = win32com.client.Dispatch("CpSysDib.StockChart")
         # 차트 객체 구하기
         for i in range(0, len(ETFList)):
@@ -328,26 +338,29 @@ if __name__ == '__main__':
             objStockChart.SetInputValue(9, ord('1')) # 수정주가 사용
             objStockChart.BlockRequest()
             vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
-            if vol > 50000 :
+            if vol > 10000 :
                 symbol_list.append(ETFList[i])
                 symbol_list_value[ETFList[i]] = get_target_price(ETFList[i])
-                print(symbol_list_value[ETFList[i]])
-            time.sleep(0.25)
+            time.sleep(0.5)
+
+        dbgout("삭제전 종목 개수: "+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
+        for d in delete_list: # 수익률 낮은 종목 삭제
+            symbol_list.remove(d)
+            del(symbol_list_value[d])
 
         bought_list = []     # 매수 완료된 종목 리스트
         sold_list = []      # 반 매도 완료된 종목 리스트
         # target_buy_count = 20 # 매수할 종목 수
         buy_percent = 0.06
-        printlog('check_creon_system(): ', check_creon_system())  # 크레온 접속 점검
-        stocks = get_stock_balance('ALL')      # 보유한 모든 종목 조회
         total_cash = int(get_current_cash())   # 100% 증거금 주문 가능 금액 조회
         buy_amount = int(total_cash * buy_percent)  # 종목별 주문 금액 계산
-        dbgout('종목 개수: '+ str(len(symbol_list)))
+        dbgout('삭제후 종목 개수: '+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
         dbgout('100% 증거금 주문 가능 금액: ' + str(total_cash))
         dbgout('종목별 주문 비율: ' + str(buy_percent))
         dbgout('종목별 주문 금액: ' + str(buy_amount))
         printlog('시작 시간: ', datetime.now().strftime('%m/%d %H:%M:%S'))
-        soldout = False
+        printlog('check_creon_system(): ', check_creon_system())  # 크레온 접속 점검
+        # soldout = False
 
         while True:
             t_now = datetime.now()
@@ -372,9 +385,9 @@ if __name__ == '__main__':
                     for bou in bought_list:
                         stock_trade(bou)
                         time.sleep(1)
-                # if t_now.minute == 0 and 0 <= t_now.second <= 5: 
-                #     get_stock_balance('ALL')
-                #     time.sleep(5)
+                if t_now.minute == 0 and 0 <= t_now.second <= 5: #한 시간마다 한번씩 계좌 정보 조회
+                    get_stock_balance('ALL')
+                    time.sleep(5)
             if t_sell < t_now < t_exit:  # PM 03:10 ~ PM 03:20 : 일괄 매도
                 if sell_all() == True:
                     dbgout('매도끝 프로그램 종료')
