@@ -1,4 +1,4 @@
-### [Auto Trade](https://github.com/hiisk/Stock/tree/main/Auto_Trade
+### [Auto Trade](https://github.com/hiisk/Stock/tree/main/Auto_Trade)
 
 # 기존 방식 
 1. 관심이 있는 주식의 ETF 종목코드를 입력한다.
