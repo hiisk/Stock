@@ -256,7 +256,7 @@ def stock_trade(code):
             cpOrder.SetInputValue(4, round(stock_qty/2))    # 매도수량
             cpOrder.SetInputValue(7, "1")   # 조건 0:기본, 1:IOC, 2:FOK
             cpOrder.SetInputValue(8, "12")  # 호가 12:최유리, 13:최우선 
-            # 시장가 IOC 매도 주문 요청
+            # 최유리 IOC 매도 주문 요청
 
             dbgout('최유리 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
             sold_list.append(code)
@@ -281,7 +281,9 @@ def stock_trade(code):
             symbol_list.remove(code)
             bought_list.remove(code)
             sold_list.remove(code)
-
+            del(symbol_list_value[code])
+            del(symbol_list_rate[code])
+            
             ret = cpOrder.BlockRequest()
             if ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
