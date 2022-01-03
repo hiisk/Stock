@@ -1,4 +1,4 @@
-### Auto Trade
+### [Auto Trade](https://github.com/hiisk/Stock/tree/main/Auto_Trade
 
 # 기존 방식 
 1. 관심이 있는 주식의 ETF 종목코드를 입력한다.
@@ -27,7 +27,7 @@
 
 5. 3시 10분이 지나면 전량 매도를 진행한다.
 
-### Forecast
+### [Forecast](https://github.com/hiisk/Stock/tree/main/Forecast)
 
 캡스톤 디자인 주제로 선정하여 구글 코랩으로 작성
 
