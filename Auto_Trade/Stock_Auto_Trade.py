@@ -131,36 +131,45 @@ def get_target_price(code):
     try:
         time_now = datetime.now()
         str_today = time_now.strftime('%Y%m%d')
-        ohlc = get_ohlc(code, 10)
-        if str_today == str(ohlc.iloc[0].name):
-            today_open = ohlc.iloc[0].open 
-            lastday = ohlc.iloc[1]
+        ohlc_2weeks = get_ohlc(code, 10) # 2주
+        ohlc_3days = ohlc_2weeks.iloc[:3,:4] # 3일
+        
+        if str_today == str(ohlc_2weeks.iloc[0].name):
+            today_open = ohlc_2weeks.iloc[0].open 
+            lastday = ohlc_2weeks.iloc[1]
         else:
-            lastday = ohlc.iloc[0]                                      
+            lastday = ohlc_2weeks.iloc[0]                                      
             today_open = lastday[3]
+        
         lastday_high = lastday[1]
         lastday_low = lastday[2]
         lastday_open = lastday[0]
         lastday_close = lastday[3]
         
         k = 0
-        target_tmp_2 = 1
+        target_tmp = 1
 
         for i in np.arange(0.1, 1.0, 0.01): # 백테스팅을 통한 최적 K값 도출
-            ohlc['range'] = (ohlc['high'] - ohlc['low']) * i
-            ohlc['target'] = ohlc['open'] + ohlc['range'].shift(1)
-            target_tmp = np.where(ohlc['high'] > ohlc['target'], ohlc['close'] / ohlc['target'],1)
-            if target_tmp_2 < target_tmp.cumprod()[-2]:
-                target_tmp_2 = target_tmp.cumprod()[-2]
+            ohlc_2weeks['range'] = (ohlc_2weeks['high'] - ohlc_2weeks['low']) * i #2주 백테스팅
+            ohlc_2weeks['target'] = ohlc_2weeks['open'] + ohlc_2weeks['range'].shift(1)
+
+            ohlc_3days['range'] = (ohlc_3days['high'] - ohlc_3days['low']) * i #3일 백테스팅
+            ohlc_3days['target'] = ohlc_3days['open'] + ohlc_3days['range'].shift(1)
+
+            target_2weeks = np.where(ohlc_2weeks['high'] > ohlc_2weeks['target'], ohlc_2weeks['close'] / ohlc_2weeks['target'],1)
+            target_3days = np.where(ohlc_3days['high'] > ohlc_3days['target'], ohlc_3days['close'] / ohlc_3days['target'],1)
+            
+            if target_tmp < target_2weeks.cumprod()[-2] and target_tmp < target_3days.cumprod()[-2]: # 어제까지의 수익을 가져오기 위해 [-2]
+                target_tmp = target_3days.cumprod()[-2]
                 k = i
         
-        if k == 0 or target_tmp_2 < 1.003: # 수익률이 너무 낮다면 제거
+        if k == 0 or target_tmp < 1.005: # 2주 백테스팅과 3일 백테스팅의 수익률이 낮다면 제거
             delete_list.append(code)
 
-        else:
-            print(code, k, target_tmp_2) 
-            if k < 0.25: #k값이 0.25보다 낮을경우 
+        else: 
+            if k < 0.25: #k값이 0.25보다 낮을경우 0.25로 설정
                 k = 0.25
+            print(code, k, target_tmp) 
         target_price = today_open + int((lastday_high - lastday_low) * k)
 
         return target_price
@@ -213,7 +222,7 @@ def stock_trade(code):
         current_cash = int(get_current_cash()) # 증거금 100% 주문 가능 금액
 
         if ((code not in bought_list) and current_price > symbol_list_value[code] and current_price > ma5_price and current_price > ma10_price
-            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.003)) :       
+            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.002)) :       
 
             cpOrder.SetInputValue(0, "2")        # 2: 매수
             cpOrder.SetInputValue(1, acc)        # 계좌번호
@@ -327,7 +336,13 @@ if __name__ == '__main__':
         symbol_list = []
         symbol_list_value = {}
         delete_list = []
+        
+        buy_percent = 0.03
+        total_cash = int(get_current_cash())   # 100% 증거금 주문 가능 금액 조회
+        buy_amount = int(total_cash * buy_percent)  # 종목별 주문 금액 계산
+
         objStockChart = win32com.client.Dispatch("CpSysDib.StockChart")
+        
         # 차트 객체 구하기
         for i in range(0, len(ETFList)):
             objStockChart.SetInputValue(0, ETFList[i])   #종목 코드 - 삼성전자
@@ -338,22 +353,23 @@ if __name__ == '__main__':
             objStockChart.SetInputValue(9, ord('1')) # 수정주가 사용
             objStockChart.BlockRequest()
             vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
+            
             if vol > 10000 :
-                symbol_list.append(ETFList[i])
-                symbol_list_value[ETFList[i]] = get_target_price(ETFList[i])
+                target_price = get_target_price(ETFList[i])
+                if target_price < buy_amount:  #목표가가 종목별 주문 금액보다 클 때 삭제
+                    symbol_list.append(ETFList[i])
+                    symbol_list_value[ETFList[i]] = target_price
             time.sleep(0.5)
 
         dbgout("삭제전 종목 개수: "+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
         for d in delete_list: # 수익률 낮은 종목 삭제
-            symbol_list.remove(d)
-            del(symbol_list_value[d])
+            if d in symbol_list and d in symbol_list_value:
+                symbol_list.remove(d)
+                del(symbol_list_value[d])
 
         bought_list = []     # 매수 완료된 종목 리스트
         sold_list = []      # 반 매도 완료된 종목 리스트
-        # target_buy_count = 20 # 매수할 종목 수
-        buy_percent = 0.06
-        total_cash = int(get_current_cash())   # 100% 증거금 주문 가능 금액 조회
-        buy_amount = int(total_cash * buy_percent)  # 종목별 주문 금액 계산
+
         dbgout('삭제후 종목 개수: '+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
         dbgout('100% 증거금 주문 가능 금액: ' + str(total_cash))
         dbgout('종목별 주문 비율: ' + str(buy_percent))
