@@ -145,7 +145,9 @@ def get_target_price(code):
         lastday_low = lastday[2]
         lastday_open = lastday[0]
         lastday_close = lastday[3]
-        
+
+        global symbol_list_rate
+
         k = 0
         target_tmp = 1
 
@@ -159,19 +161,21 @@ def get_target_price(code):
             target_2weeks = np.where(ohlc_2weeks['high'] > ohlc_2weeks['target'], ohlc_2weeks['close'] / ohlc_2weeks['target'],1)
             target_3days = np.where(ohlc_3days['high'] > ohlc_3days['target'], ohlc_3days['close'] / ohlc_3days['target'],1)
             
-            if target_tmp < target_2weeks.cumprod()[-2] and target_tmp < target_3days.cumprod()[-2]: # 어제까지의 수익을 가져오기 위해 [-2]
-                target_tmp = target_3days.cumprod()[-2]
+            if target_tmp < target_2weeks.cumprod()[-2]  and 1.003 < target_3days.cumprod()[-2]: #3일 백테스팅이 1.003보다 클경우
+                target_tmp = target_2weeks.cumprod()[-2]
                 k = i
         
-        if k == 0 or target_tmp < 1.005: # 2주 백테스팅과 3일 백테스팅의 수익률이 낮다면 제거
+        if k == 0 or target_tmp < 1.003: # 2주 백테스팅의 수익률이 낮다면 제거
             delete_list.append(code)
 
         else: 
-            if k < 0.25: #k값이 0.25보다 낮을경우 0.25로 설정
-                k = 0.25
-            print(code, k, target_tmp) 
-        target_price = today_open + int((lastday_high - lastday_low) * k)
+            if target_tmp > 1.01:
+                target_tmp = (target_tmp-1)/3 + 1
+                print(code, k, target_tmp)
+        symbol_list_rate[code] = target_tmp
 
+        target_price = today_open + int((lastday_high - lastday_low) * k) # k값이 낮게 설정되있는 경향을 자주보임(0.1일 경우가 많음)
+        
         return target_price
 
     except Exception as ex:
@@ -244,7 +248,7 @@ def stock_trade(code):
                 return False
         
         #반 매도
-        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.005 :
+        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * symbol_list_rate[code] :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -263,7 +267,7 @@ def stock_trade(code):
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)
         
         #반매도후 나머지 매도
-        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.009 :
+        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * ((symbol_list_rate[code]-1)*3+1) :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -335,9 +339,11 @@ if __name__ == '__main__':
                 ETFList.append(code)
         symbol_list = []
         symbol_list_value = {}
+        symbol_list_rate = {}
+
         delete_list = []
-        
-        buy_percent = 0.03
+
+        buy_percent = 0.1
         total_cash = int(get_current_cash())   # 100% 증거금 주문 가능 금액 조회
         buy_amount = int(total_cash * buy_percent)  # 종목별 주문 금액 계산
 
@@ -359,18 +365,22 @@ if __name__ == '__main__':
                 if target_price < buy_amount:  #목표가가 종목별 주문 금액보다 클 때 삭제
                     symbol_list.append(ETFList[i])
                     symbol_list_value[ETFList[i]] = target_price
-            time.sleep(0.5)
-
-        dbgout("삭제전 종목 개수: "+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
-        for d in delete_list: # 수익률 낮은 종목 삭제
-            if d in symbol_list and d in symbol_list_value:
-                symbol_list.remove(d)
-                del(symbol_list_value[d])
+        
+            time.sleep(0.25)
+        
+        dbgout("삭제전 종목 개수: "+ str(len(symbol_list)) +", "+ str(len(symbol_list_value))+", "+ str(len(symbol_list_rate)))
+        
+        if len(delete_list) > 0:
+            for d in delete_list: # 수익률 낮은 종목 삭제
+                if d in symbol_list and d in symbol_list_value:
+                    symbol_list.remove(d)
+                    del(symbol_list_value[d])
+                    del(symbol_list_rate[d])
 
         bought_list = []     # 매수 완료된 종목 리스트
         sold_list = []      # 반 매도 완료된 종목 리스트
 
-        dbgout('삭제후 종목 개수: '+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)))
+        dbgout('삭제후 종목 개수: '+ str(len(symbol_list)) +", "+ str(len(symbol_list_value)) +", "+ str(len(symbol_list_rate)))
         dbgout('100% 증거금 주문 가능 금액: ' + str(total_cash))
         dbgout('종목별 주문 비율: ' + str(buy_percent))
         dbgout('종목별 주문 금액: ' + str(buy_amount))
