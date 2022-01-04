@@ -131,8 +131,8 @@ def get_target_price(code):
     try:
         time_now = datetime.now()
         str_today = time_now.strftime('%Y%m%d')
-        ohlc_2weeks = get_ohlc(code, 10) # 2주
-        ohlc_3days = ohlc_2weeks.iloc[:3,:4] # 3일
+        ohlc_2weeks = get_ohlc(code, 10)[::-1] # 2주 반대로 입력하기위해 [::-1]사용
+        ohlc_3days = ohlc_2weeks.iloc[7:,:4] # 3일
         
         if str_today == str(ohlc_2weeks.iloc[0].name):
             today_open = ohlc_2weeks.iloc[0].open 
@@ -165,13 +165,13 @@ def get_target_price(code):
                 target_tmp = target_2weeks.cumprod()[-2]
                 k = i
         
-        if k == 0 or target_tmp < 1.003: # 2주 백테스팅의 수익률이 낮다면 제거
+        if k == 0 or target_tmp <= 1.003: # 2주 백테스팅의 수익률이 낮다면 제거
             delete_list.append(code)
 
         else: 
-            if target_tmp > 1.01:
-                target_tmp = (target_tmp-1)/3 + 1
-                print(code, k, target_tmp)
+            if target_tmp < 1.01:
+                target_tmp = 1.01
+            print(code, k, target_tmp)
         symbol_list_rate[code] = target_tmp
 
         target_price = today_open + int((lastday_high - lastday_low) * k) # k값이 낮게 설정되있는 경향을 자주보임(0.1일 경우가 많음)
@@ -215,6 +215,8 @@ def stock_trade(code):
         if code not in bought_list:
             ma5_price = get_movingaverage(code, 5)   # 5일 이동평균가
             ma10_price = get_movingaverage(code, 10) # 10일 이동평균가
+            current_cash = int(get_current_cash()) # 증거금 100% 주문 가능 금액
+
         buy_qty = 0        # 매수할 수량 초기화
         if ask_price > 0:  # 매수호가가 존재하면   
             buy_qty = buy_amount // ask_price  
@@ -223,10 +225,9 @@ def stock_trade(code):
         cpTradeUtil.TradeInit()
         acc = cpTradeUtil.AccountNumber[0]      # 계좌번호
         accFlag = cpTradeUtil.GoodsList(acc, 1) # -1:전체,1:주식,2:선물/옵션    
-        current_cash = int(get_current_cash()) # 증거금 100% 주문 가능 금액
 
         if ((code not in bought_list) and current_price > symbol_list_value[code] and current_price > ma5_price and current_price > ma10_price
-            and current_cash > total_cash * buy_percent and (current_price < symbol_list_value[code] * 1.002)) :       
+            and current_cash > buy_amount and (current_price < symbol_list_value[code] * 1.002)) :       
 
             cpOrder.SetInputValue(0, "2")        # 2: 매수
             cpOrder.SetInputValue(1, acc)        # 계좌번호
@@ -234,21 +235,22 @@ def stock_trade(code):
             cpOrder.SetInputValue(3, code)       # 종목코드
             cpOrder.SetInputValue(4, buy_qty)    # 매수할 수량
             cpOrder.SetInputValue(7, "1")        # 주문조건 0:기본, 1:IOC, 2:FOK
-            cpOrder.SetInputValue(8, "03")       # 주문호가 1:보통, 3:시장가
+            cpOrder.SetInputValue(8, "12")       # 주문호가 1:보통, 3:시장가
                                                  # 5:조건부, 12:최유리, 13:최우선 
-            # 매수 주문 요청
-            dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '매수 완료')
-            bought_list.append(code)
-
+            # 매수 주문 요청 ret = 4일때 주문제한
             ret = cpOrder.BlockRequest() 
-            if ret == 4:
+            if ret == 0: #매수 정상요청처리
+                dbgout('최유리 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '매수 완료')
+                bought_list.append(code)
+            elif ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
                 printlog('주의: 연속 주문 제한에 걸림. 대기 시간:', remain_time/1000)
                 time.sleep(remain_time/1000) 
                 return False
-        
+            time.sleep(0.5)
+
         #반 매도
-        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * symbol_list_rate[code] :
+        elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.005 :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -256,18 +258,19 @@ def stock_trade(code):
             cpOrder.SetInputValue(4, round(stock_qty/2))    # 매도수량
             cpOrder.SetInputValue(7, "1")   # 조건 0:기본, 1:IOC, 2:FOK
             cpOrder.SetInputValue(8, "12")  # 호가 12:최유리, 13:최우선 
-            # 최유리 IOC 매도 주문 요청
 
-            dbgout('최유리 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
-            sold_list.append(code)
-
-            ret = cpOrder.BlockRequest() 
-            if ret == 4:
+            # 반 매도 주문 요청 ret = 4일때 주문제한
+            ret = cpOrder.BlockRequest()
+            if ret == 0: #반 매도 정상요청처리
+                dbgout('최유리 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '반 매도 완료')
+                sold_list.append(code)
+            elif ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)
-        
+            time.sleep(0.5)
+
         #반매도후 나머지 매도
-        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * ((symbol_list_rate[code]-1)*3+1) :
+        elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * symbol_list_rate[code] :
             cpOrder.SetInputValue(0, "1")         # 1:매도, 2:매수
             cpOrder.SetInputValue(1, acc)         # 계좌번호
             cpOrder.SetInputValue(2, accFlag[0])  # 주식상품 중 첫번째
@@ -275,19 +278,20 @@ def stock_trade(code):
             cpOrder.SetInputValue(4, stock_qty)    # 매도수량
             cpOrder.SetInputValue(7, "1")   # 조건 0:기본, 1:IOC, 2:FOK
             cpOrder.SetInputValue(8, "03")  # 호가 12:최유리, 13:최우선 
-            # 시장가 IOC 매도 주문 요청
-            dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '전체 매도 완료')
             
-            symbol_list.remove(code)
-            bought_list.remove(code)
-            sold_list.remove(code)
-            del(symbol_list_value[code])
-            del(symbol_list_rate[code])
-            
+            # 나머지 매도 주문 요청 ret = 4일때 주문제한
             ret = cpOrder.BlockRequest()
-            if ret == 4:
+            if ret == 0: #나머지 매도 정상요청처리
+                dbgout('시장가 IOC 조건 ' + '\n' + str(stock_name) + '\t' + str(code) + '\n' + '전체 매도 완료')
+                symbol_list.remove(code)
+                bought_list.remove(code)
+                sold_list.remove(code)
+                del(symbol_list_value[code])
+                del(symbol_list_rate[code])
+            elif ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)   
+            time.sleep(0.5)
 
     except Exception as ex:
         dbgout("`stock_trade("+ str(code) + ") -> exception! " + str(ex) + "`")
