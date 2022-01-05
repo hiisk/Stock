@@ -131,9 +131,9 @@ def get_target_price(code):
     try:
         time_now = datetime.now()
         str_today = time_now.strftime('%Y%m%d')
-        ohlc_2weeks = get_ohlc(code, 10)[::-1] # 2주 반대로 입력하기위해 [::-1]사용
+        ohlc_2weeks = get_ohlc(code, 10).sort_index() # 받아온 2주 날짜맞춰서 입력
         ohlc_3days = ohlc_2weeks.iloc[7:,:4] # 3일
-        
+
         if str_today == str(ohlc_2weeks.iloc[0].name):
             today_open = ohlc_2weeks.iloc[0].open 
             lastday = ohlc_2weeks.iloc[1]
@@ -161,11 +161,11 @@ def get_target_price(code):
             target_2weeks = np.where(ohlc_2weeks['high'] > ohlc_2weeks['target'], ohlc_2weeks['close'] / ohlc_2weeks['target'],1)
             target_3days = np.where(ohlc_3days['high'] > ohlc_3days['target'], ohlc_3days['close'] / ohlc_3days['target'],1)
             
-            if target_tmp < target_2weeks.cumprod()[-2]  and 1.003 < target_3days.cumprod()[-2]: #3일 백테스팅이 1.003보다 클경우
+            if target_tmp < target_2weeks.cumprod()[-2]  and 1.004 < target_3days.cumprod()[-2]: #3일 백테스팅이 1.004보다 클경우
                 target_tmp = target_2weeks.cumprod()[-2]
                 k = i
         
-        if k == 0 or target_tmp <= 1.003: # 2주 백테스팅의 수익률이 낮다면 제거
+        if k == 0 or target_tmp <= 1.004: # 2주 백테스팅의 수익률이 낮다면 제거
             delete_list.append(code)
 
         else: 
@@ -247,7 +247,7 @@ def stock_trade(code):
                 printlog('주의: 연속 주문 제한에 걸림. 대기 시간:', remain_time/1000)
                 time.sleep(remain_time/1000) 
                 return False
-            time.sleep(0.5)
+            time.sleep(5)
 
         #반 매도
         elif (code not in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * 1.005 :
@@ -267,7 +267,7 @@ def stock_trade(code):
             elif ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)
-            time.sleep(0.5)
+            time.sleep(5)
 
         #반매도후 나머지 매도
         elif (code in sold_list) and (code in bought_list) and stock_qty != 0 and current_price >= symbol_list_value[code] * symbol_list_rate[code] :
@@ -291,7 +291,7 @@ def stock_trade(code):
             elif ret == 4:
                 remain_time = cpStatus.LimitRequestRemainTime
                 printlog('주의: 연속 주문 제한, 대기시간:', remain_time/1000)   
-            time.sleep(0.5)
+            time.sleep(5)
 
     except Exception as ex:
         dbgout("`stock_trade("+ str(code) + ") -> exception! " + str(ex) + "`")
@@ -343,6 +343,7 @@ if __name__ == '__main__':
     
             if stockKind == 10 or stockKind == 12 :
                 ETFList.append(code)
+
         symbol_list = []
         symbol_list_value = {}
         symbol_list_rate = {}
@@ -353,6 +354,9 @@ if __name__ == '__main__':
         total_cash = int(get_current_cash())   # 100% 증거금 주문 가능 금액 조회
         buy_amount = int(total_cash * buy_percent)  # 종목별 주문 금액 계산
 
+
+        printlog('check_creon_system(): ', check_creon_system())  # 크레온 접속 점검
+        
         objStockChart = win32com.client.Dispatch("CpSysDib.StockChart")
         
         # 차트 객체 구하기
@@ -360,20 +364,25 @@ if __name__ == '__main__':
             objStockChart.SetInputValue(0, ETFList[i])   #종목 코드 - 삼성전자
             objStockChart.SetInputValue(1, ord('2')) # 개수로 조회
             objStockChart.SetInputValue(4, 100) # 최근 100일 치
-            objStockChart.SetInputValue(5, [0,2,3,4,5, 8]) #날짜,시가,고가,저가,종가,거래량
+            objStockChart.SetInputValue(5, [0,2,3,4,5,8]) #날짜,시가,고가,저가,종가,거래량
             objStockChart.SetInputValue(6, ord('D')) # '차트 주가 - 일간 차트 요청
             objStockChart.SetInputValue(9, ord('1')) # 수정주가 사용
             objStockChart.BlockRequest()
-            vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
+            stock_len = objStockChart.GetHeaderValue(3)
             
+            if stock_len < 10: #주식상장이 10일 안됐을 때 continue를 통한 탈출
+                continue
+
+            vol = objStockChart.GetDataValue(5, 1) #전날 거래량 = 1
+
             if vol > 10000 :
                 target_price = get_target_price(ETFList[i])
                 if target_price < buy_amount:  #목표가가 종목별 주문 금액보다 클 때 삭제
                     symbol_list.append(ETFList[i])
                     symbol_list_value[ETFList[i]] = target_price
-        
+            
             time.sleep(0.25)
-        
+
         dbgout("삭제전 종목 개수: "+ str(len(symbol_list)) +", "+ str(len(symbol_list_value))+", "+ str(len(symbol_list_rate)))
         
         if len(delete_list) > 0:
@@ -391,7 +400,6 @@ if __name__ == '__main__':
         dbgout('종목별 주문 비율: ' + str(buy_percent))
         dbgout('종목별 주문 금액: ' + str(buy_amount))
         printlog('시작 시간: ', datetime.now().strftime('%m/%d %H:%M:%S'))
-        printlog('check_creon_system(): ', check_creon_system())  # 크레온 접속 점검
         # soldout = False
 
         while True:
